@@ -580,7 +580,9 @@ func _build_fruit() -> void:
 		]
 		var mi := MeshInstance3D.new()
 		mi.mesh = MeshUtil.merge_parts(parts)
-		mi.material_override = MeshUtil.ps1_material(Color(1.0, 0.6, 0.2), 0.35)
+		var mat := MeshUtil.ps1_material(Color(1.0, 0.6, 0.2), 0.35)
+		mat.next_pass = MeshUtil.outline_material()
+		mi.material_override = mat
 		add_child(mi)
 		mi.position = path_point(o) + Vector3(0, h, 0)
 		_fruit.append({"node": mi, "offset": o, "height": h, "taken": false})

@@ -6,8 +6,18 @@ extends RefCounted
 const PS1_SHADER := preload("res://shaders/ps1.gdshader")
 const PS1_TEXTURED_SHADER := preload("res://shaders/ps1_textured.gdshader")
 const PS1_TILED_SHADER := preload("res://shaders/ps1_tiled.gdshader")
+const OUTLINE_SHADER := preload("res://shaders/outline.gdshader")
 
 static var _vc_mat: ShaderMaterial
+static var _outline_mat: ShaderMaterial
+
+
+## Shared 1-pixel dark outline, used as a material's next_pass (Bao and the fruit).
+static func outline_material() -> ShaderMaterial:
+	if _outline_mat == null:
+		_outline_mat = ShaderMaterial.new()
+		_outline_mat.shader = OUTLINE_SHADER
+	return _outline_mat
 
 
 ## Shared PS1 material (vertex colours, per-vertex lighting, vertex snapping).
@@ -28,17 +38,20 @@ static func ps1_material(emission: Color = Color.BLACK, energy: float = 0.0, alb
 
 ## Swaps each surface of an imported mesh for a PS1 material: the textured version if the
 ## surface has a texture (hard-edged pixels), otherwise flat colour. Works on skinned meshes too.
-static func apply_ps1(mi: MeshInstance3D) -> void:
+static func apply_ps1(mi: MeshInstance3D, outline := false) -> void:
 	for i in mi.mesh.get_surface_count():
 		var sm := mi.get_active_material(i) as BaseMaterial3D
+		var m: ShaderMaterial
 		if sm != null and sm.albedo_texture != null:
-			var m := ShaderMaterial.new()
+			m = ShaderMaterial.new()
 			m.shader = PS1_TEXTURED_SHADER
 			m.set_shader_parameter("tex", sm.albedo_texture)
-			mi.set_surface_override_material(i, m)
 		else:
 			var c := Color.WHITE if sm == null else sm.albedo_color
-			mi.set_surface_override_material(i, ps1_material(Color.BLACK, 0.0, c))
+			m = ps1_material(Color.BLACK, 0.0, c)
+		if outline:
+			m.next_pass = outline_material()
+		mi.set_surface_override_material(i, m)
 
 
 ## Tiling pixel-art material for level geometry (texture x vertex colour x tint).

@@ -26,6 +26,10 @@ const COYOTE_TIME := 0.1
 const JUMP_BUFFER := 0.12
 const MODEL_HEIGHT := 1.5       # the imported model is scaled to this many metres tall
 const GLIDE_BANK := 40.0        # degrees of roll towards the camera while gliding
+const IDLE_TURN := 0.75         # how far (0-1) Bao turns from the path towards the camera when idle
+const IDLE_TURN_DELAY := 0.3    # seconds standing still before he turns
+const LAND_TIME := 0.42         # length of the "land" bounce animation
+const LOOPING := ["idle", "run", "fall", "glide"]   # jump and land play once
 
 var level: Node                 # level.gd: path maths + collision queries
 var controls_enabled := true
@@ -43,6 +47,8 @@ var _coyote := 0.0
 var _buffer := 0.0
 var _yaw := 0.0
 var _squash := 0.0
+var _idle_time := 0.0           # seconds standing still (Bao turns to the camera after a moment)
+var _land_time := 0.0           # > 0 while the landing bounce plays
 
 var _yaw_pivot: Node3D          # turns to face along the path
 var _body: Node3D               # tilts forward when gliding, bobs when running
@@ -96,6 +102,7 @@ func _physics_process(delta: float) -> void:
 		_buffer = 0.0
 		_coyote = 0.0
 		glide_left = GLIDE_TIME
+		_play_anim("jump", true)
 		jumped.emit()
 	if jump_released and y_vel > 0.0:
 		y_vel *= JUMP_CUT
@@ -131,6 +138,7 @@ func _physics_process(delta: float) -> void:
 		glide_left = GLIDE_TIME
 		if not was_grounded:
 			_squash = 1.0
+			_land_time = LAND_TIME
 			landed.emit()
 	else:
 		height = new_height
@@ -146,9 +154,16 @@ func _update_transform(delta: float, snap: bool) -> void:
 	global_position = level.path_point(offset) + Vector3(0, height, 0)
 
 	# Face along the path in the direction we're heading. The model faces +Z.
+	# Standing still, turn most of the way towards the camera so his face shows.
+	var idle := grounded and absf(speed) < 0.5
+	_idle_time = _idle_time + delta if idle else 0.0
 	var dir: Vector3 = level.path_dir(offset) * facing
+	var turn_rate := 14.0
+	if _idle_time > IDLE_TURN_DELAY:
+		dir = dir.lerp(level.path_side(offset), IDLE_TURN).normalized()
+		turn_rate = 6.0
 	var want_yaw := atan2(dir.x, dir.z)
-	_yaw = want_yaw if snap else lerp_angle(_yaw, want_yaw, minf(1.0, 14.0 * delta))
+	_yaw = want_yaw if snap else lerp_angle(_yaw, want_yaw, minf(1.0, turn_rate * delta))
 	_yaw_pivot.rotation.y = _yaw
 
 	# Lie flat (belly down) while gliding; the glide animation spreads the arms, legs and flaps.
@@ -165,11 +180,16 @@ func _update_transform(delta: float, snap: bool) -> void:
 	var sq := _squash * 0.25
 	_body.scale = Vector3(1.0 + sq, 1.0 - sq, 1.0 + sq)
 
-	# Pick the animation (made in Blender: idle, run, jump, fall, glide).
+	# Pick the animation (made in Blender: idle, run, jump, fall, glide, land).
+	_land_time = maxf(_land_time - delta, 0.0)
 	if grounded:
 		if absf(speed) > 0.5:
+			_land_time = 0.0
 			_play_anim("run")
-			_anim.speed_scale = clampf(absf(speed) / RUN_SPEED, 0.5, 1.3) * 1.4
+			_anim.speed_scale = clampf(absf(speed) / RUN_SPEED, 0.5, 1.3) * 1.3
+		elif _land_time > 0.0:
+			_play_anim("land")
+			_anim.speed_scale = 1.0
 		else:
 			_play_anim("idle")
 			_anim.speed_scale = 1.0
@@ -193,9 +213,14 @@ func _update_transform(delta: float, snap: bool) -> void:
 		_shadow.visible = false
 
 
-func _play_anim(anim_name: String) -> void:
-	if _anim and _anim.has_animation(anim_name) and _anim.current_animation != anim_name:
-		_anim.play(anim_name, 0.15)
+func _play_anim(anim_name: String, restart := false) -> void:
+	if _anim == null or not _anim.has_animation(anim_name):
+		return
+	# A finished one-shot (jump, land) clears current_animation, so check assigned_animation.
+	if restart or _anim.assigned_animation != anim_name:
+		_anim.play(anim_name, 0.1 if anim_name == "land" else 0.15)
+		if restart:
+			_anim.seek(0.0, true)
 
 
 func _build_model() -> void:
@@ -213,7 +238,7 @@ func _build_model() -> void:
 	if board:
 		board.visible = false
 	for mi in _model.find_children("*", "MeshInstance3D", true, false):
-		MeshUtil.apply_ps1(mi)
+		MeshUtil.apply_ps1(mi, true)
 
 	# Scale the model to MODEL_HEIGHT and stand its feet on y = 0.
 	var box := _visible_aabb(_model)
@@ -225,7 +250,7 @@ func _build_model() -> void:
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	if _anim:
 		for n in _anim.get_animation_list():
-			_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+			_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR if n in LOOPING else Animation.LOOP_NONE
 		_anim.play("idle")
 
 	# PS1-style blob shadow.
