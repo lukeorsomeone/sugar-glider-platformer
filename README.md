@@ -1,4 +1,4 @@
-# Sugar Glider Platformer
+# Bao: Legend of the Dragonfruit
 
 A 2.5D platformer starring **Bao**, the sugar glider from *Super Snowboarding!*, built in **Godot 4.7**.
 
