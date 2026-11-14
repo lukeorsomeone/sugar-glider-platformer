@@ -1,5 +1,5 @@
 extends Node3D
-## The sugar glider. Movement is "2.5D": the glider only moves forwards/backwards along the
+## Bao, the sugar glider. Movement is "2.5D": Bao only moves forwards/backwards along the
 ## level's curved path (offset) and up/down (height). The level turns those two numbers
 ## into a 3D position, so the world can wind around while the controls stay 2D.
 ##
@@ -204,7 +204,7 @@ func _build_model() -> void:
 	_body = Node3D.new()
 	_yaw_pivot.add_child(_body)
 
-	# Reuse the sugar glider from Super Snowboarding, without the snowboard.
+	# Reuse Bao's model from Super Snowboarding, without the snowboard.
 	_model = GLIDER_MODEL.instantiate()
 	_bank = Node3D.new()
 	_body.add_child(_bank)

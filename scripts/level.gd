@@ -123,7 +123,7 @@ func _process(delta: float) -> void:
 	if not _finished and player.offset >= GOAL_OFFSET:
 		_finished = true
 		player.controls_enabled = false
-		_hud_message.text = "Made it home!\n%d / %d fruit\n\nPress R to play again" % [_fruit_count, _fruit.size()]
+		_hud_message.text = "Bao made it home!\n%d / %d fruit\n\nPress R to play again" % [_fruit_count, _fruit.size()]
 		_hud_message.visible = true
 
 
@@ -377,7 +377,7 @@ func _build_updrafts() -> void:
 
 
 func _build_goal() -> void:
-	# A big hollow gum tree: the glider's home.
+	# A big hollow gum tree: Bao's home.
 	var c := path_point(GOAL_OFFSET + 2.5)
 	var g := ground_height(GOAL_OFFSET, 50.0)
 	var away := -path_side(GOAL_OFFSET)
