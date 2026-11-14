@@ -3,7 +3,8 @@ shader_type spatial;
 // per-vertex lighting and vertex snapping to the 320x240 grid.
 render_mode vertex_lighting, cull_disabled, specular_disabled;
 
-uniform sampler2D tex : source_color, filter_nearest_mipmap;
+// No mipmaps (like the PS1): mip levels would blend the atlas's unused magenta into Bao.
+uniform sampler2D tex : source_color, filter_nearest;
 uniform vec2 snap_resolution = vec2(320.0, 240.0);
 
 void vertex() {

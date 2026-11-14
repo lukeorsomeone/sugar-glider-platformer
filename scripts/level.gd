@@ -56,6 +56,16 @@ const CHECKPOINTS := [2.0, 37.0, 59.0, 81.0, 110.0]
 
 const GOAL_OFFSET := 128.0
 
+## Pixel-art textures made in Aseprite (tools/aseprite/level_textures.lua).
+const TEX_GRASS := preload("res://assets/textures/source/grass_top.png")
+const TEX_GRASS_LIP := preload("res://assets/textures/source/grass_lip.png")
+const TEX_DIRT := preload("res://assets/textures/source/dirt_side.png")
+const TEX_WOOD := preload("res://assets/textures/source/wood.png")
+const TEX_BARK := preload("res://assets/textures/source/gum_bark.png")
+const TEX_LEAVES := preload("res://assets/textures/source/leaves.png")
+const TILE := 1.6               # metres covered by one 32px texture tile
+const LIP := 0.5                # height of the grassy edge band on solid ground
+
 var curve: Curve3D
 var length := 0.0
 var player: Node3D
@@ -79,6 +89,7 @@ func _ready() -> void:
 	_build_fruit()
 	_build_updrafts()
 	_build_goal()
+	_flush_trees()
 	_build_hud()
 
 	player = PlayerScript.new()
@@ -99,7 +110,11 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_time += delta
 	if Input.is_action_just_pressed("restart"):
-		get_tree().reload_current_scene()
+		var screen := get_node_or_null("/root/Screen")
+		if screen:
+			screen.reload()
+		else:
+			get_tree().reload_current_scene()
 		return
 
 	# Spin and bob the fruit, and collect any the glider touches.
@@ -123,7 +138,7 @@ func _process(delta: float) -> void:
 	if not _finished and player.offset >= GOAL_OFFSET:
 		_finished = true
 		player.controls_enabled = false
-		_hud_message.text = "Bao made it home!\n%d / %d fruit\n\nPress R to play again" % [_fruit_count, _fruit.size()]
+		_hud_message.text = "BAO MADE IT HOME!\n\n%d/%d FRUIT\n\nPRESS R TO PLAY AGAIN" % [_fruit_count, _fruit.size()]
 		_hud_message.visible = true
 
 
@@ -231,64 +246,97 @@ func _build_environment() -> void:
 	floor_mesh.size = Vector2(400, 400)
 	var fm := MeshInstance3D.new()
 	fm.mesh = floor_mesh
-	fm.material_override = MeshUtil.ps1_material(Color.BLACK, 0.0, Color(0.16, 0.3, 0.14))
+	fm.material_override = MeshUtil.tiled_material(TEX_GRASS, Color(0.45, 0.6, 0.45))
+	# PlaneMesh UVs run 0..1 across it; scale them so the grass tiles at the usual size.
+	fm.material_override.set_shader_parameter("uv_scale", Vector2.ONE * floor_mesh.size.x / TILE)
 	var mid := path_point(length * 0.5)
 	fm.position = Vector3(mid.x, FOREST_FLOOR, mid.z)
 	add_child(fm)
 
 
 func _build_platforms() -> void:
+	var mats := {
+		"grass": MeshUtil.tiled_material(TEX_GRASS),
+		"lip": MeshUtil.tiled_material(TEX_GRASS_LIP),
+		"dirt": MeshUtil.tiled_material(TEX_DIRT),
+		"wood": MeshUtil.tiled_material(TEX_WOOD),
+	}
 	for p in PLATFORMS:
 		var solid: bool = p[3]
-		var top_col := Color(0.38, 0.72, 0.3) if solid else Color(0.72, 0.52, 0.3)
-		var side_col := Color(0.48, 0.32, 0.18) if solid else Color(0.5, 0.33, 0.18)
 		var bottom: float = FOREST_FLOOR if solid else p[2] - 0.45
 		var width := HALF_WIDTH if solid else HALF_WIDTH * 0.8
 		var mi := MeshInstance3D.new()
-		mi.mesh = _strip_mesh(p[0], p[1], p[2], bottom, width, top_col, side_col)
-		mi.material_override = MeshUtil.vertex_color_material()
+		mi.mesh = _strip_mesh(p[0], p[1], p[2], bottom, width, solid, mats)
 		add_child(mi)
 
 
-## A block that follows the curve from offset a to b.
-func _strip_mesh(a: float, b: float, top: float, bottom: float, half: float, top_col: Color, side_col: Color) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+## A block that follows the curve from offset a to b. Solid ground gets a grass top, a
+## grassy edge band and dirt sides; branches are wood all over. UVs are in world metres
+## (one texture tile per TILE), so the pattern lines up from one platform to the next.
+## Vertex colours (greys) shade the faces: the side facing away from the camera is darker.
+func _strip_mesh(a: float, b: float, top: float, bottom: float, half: float, solid: bool, mats: Dictionary) -> ArrayMesh:
+	var tools := {}
+	for key in (["grass", "lip", "dirt"] if solid else ["wood"]):
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		tools[key] = st
+	var top_st: SurfaceTool = tools["grass" if solid else "wood"]
+	var lip_st: SurfaceTool = tools.get("lip")
+	var side_st: SurfaceTool = tools["dirt" if solid else "wood"]
+
 	var steps := maxi(1, ceili((b - a) / 0.5))
 	var rows: Array = []
 	for i in steps + 1:
 		var o := lerpf(a, b, float(i) / steps)
 		var c := path_point(o)
 		var s := path_side(o) * half
-		rows.append([c - s, c + s])   # [far edge, camera-side edge]
+		rows.append([c - s, c + s, o])   # [far edge, camera-side edge, offset]
+	var w := half * 2.0 / TILE
 	var up := Vector3(0, top, 0)
 	var down := Vector3(0, bottom, 0)
-	var edge := Vector3(0, top - 0.18, 0)
+	var lip_h := LIP if solid else 0.0
+	var edge := Vector3(0, top - lip_h, 0)
+	var depth := (top - lip_h - bottom) / TILE
+	const NEAR := Color(1, 1, 1)
+	const FAR := Color(0.72, 0.72, 0.72)
 	for i in steps:
 		var l0: Vector3 = rows[i][0]
 		var r0: Vector3 = rows[i][1]
 		var l1: Vector3 = rows[i + 1][0]
 		var r1: Vector3 = rows[i + 1][1]
-		_quad(st, l0 + up, l1 + up, r1 + up, r0 + up, top_col, Vector3.UP)
-		# Grass lip, then dirt down the sides.
-		_quad(st, l0 + up, l1 + up, l1 + edge, l0 + edge, top_col.darkened(0.15), Vector3.FORWARD)
-		_quad(st, l0 + edge, l1 + edge, l1 + down, l0 + down, side_col.darkened(0.2), Vector3.FORWARD)
-		_quad(st, r0 + up, r1 + up, r1 + edge, r0 + edge, top_col.darkened(0.15), Vector3.BACK)
-		_quad(st, r0 + edge, r1 + edge, r1 + down, r0 + down, side_col, Vector3.BACK)
-		_quad(st, l0 + down, l1 + down, r1 + down, r0 + down, side_col.darkened(0.4), Vector3.DOWN)
+		var u0: float = rows[i][2] / TILE
+		var u1: float = rows[i + 1][2] / TILE
+		_quad(top_st, [l0 + up, l1 + up, r1 + up, r0 + up],
+			[Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, w), Vector2(u0, w)], NEAR, Vector3.UP)
+		if solid:
+			var lip_uv := [Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, 1), Vector2(u0, 1)]
+			_quad(lip_st, [l0 + up, l1 + up, l1 + edge, l0 + edge], lip_uv, FAR, Vector3.FORWARD)
+			_quad(lip_st, [r0 + up, r1 + up, r1 + edge, r0 + edge], lip_uv, NEAR, Vector3.BACK)
+		var side_uv := [Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, depth), Vector2(u0, depth)]
+		_quad(side_st, [l0 + edge, l1 + edge, l1 + down, l0 + down], side_uv, FAR, Vector3.FORWARD)
+		_quad(side_st, [r0 + edge, r1 + edge, r1 + down, r0 + down], side_uv, NEAR, Vector3.BACK)
+		_quad(side_st, [l0 + down, l1 + down, r1 + down, r0 + down],
+			[Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, w), Vector2(u0, w)], FAR * 0.7, Vector3.DOWN)
 	# End caps.
+	var cap_uv := [Vector2(0, 0), Vector2(w, 0), Vector2(w, (top - bottom) / TILE), Vector2(0, (top - bottom) / TILE)]
 	var f: Array = rows[0]
 	var e: Array = rows[steps]
-	_quad(st, f[0] + up, f[1] + up, f[1] + down, f[0] + down, side_col.darkened(0.1), Vector3.LEFT)
-	_quad(st, e[0] + up, e[1] + up, e[1] + down, e[0] + down, side_col.darkened(0.1), Vector3.RIGHT)
-	return st.commit()
+	_quad(side_st, [f[0] + up, f[1] + up, f[1] + down, f[0] + down], cap_uv, Color(0.85, 0.85, 0.85), Vector3.LEFT)
+	_quad(side_st, [e[0] + up, e[1] + up, e[1] + down, e[0] + down], cap_uv, Color(0.85, 0.85, 0.85), Vector3.RIGHT)
+
+	var mesh := ArrayMesh.new()
+	for key in tools:
+		(tools[key] as SurfaceTool).commit(mesh)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, mats[key])
+	return mesh
 
 
-func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, col: Color, n: Vector3) -> void:
+func _quad(st: SurfaceTool, v: Array, uv: Array, col: Color, n: Vector3) -> void:
 	st.set_color(col)
 	st.set_normal(n)
-	for v in [a, b, c, a, c, d]:
-		st.add_vertex(v)
+	for i in [0, 1, 2, 0, 2, 3]:
+		st.set_uv(uv[i])
+		st.add_vertex(v[i])
 
 
 func _build_trees() -> void:
@@ -306,22 +354,38 @@ func _build_trees() -> void:
 		o += rng.randf_range(2.5, 5.0)
 
 
-func _add_tree(base: Vector3, h: float, rng: RandomNumberGenerator) -> void:
-	var trunk_col := Color(0.82, 0.78, 0.7).darkened(rng.randf_range(0.0, 0.25))
-	var leaf_col := Color(0.3, 0.52, 0.32).darkened(rng.randf_range(0.0, 0.3))
-	var r := rng.randf_range(0.35, 0.6)
-	var parts := [
-		[MeshUtil.cylinder(r * 0.7, r, h, 7), MeshUtil.at(Vector3(0, h * 0.5, 0)), trunk_col],
-	]
+## Queues a tree's trunk and leaves. All trees end up in two meshes (bark and leaves),
+## built by _flush_trees(), so the whole forest is just two draw calls.
+var _trunk_parts: Array = []
+var _leaf_parts: Array = []
+
+func _add_tree(base: Vector3, h: float, rng: RandomNumberGenerator, r: float = -1.0, leaf_size: float = -1.0) -> void:
+	var shade := rng.randf_range(0.75, 1.0)
+	if r < 0.0:
+		r = rng.randf_range(0.35, 0.6)
+	# UV scale: tiles around the trunk (circumference) and up it (height).
+	var bark_uv := Vector2(maxf(1.0, roundf(TAU * r / TILE)), h / TILE)
+	_trunk_parts.append([MeshUtil.cylinder(r * 0.7, r, h, 7), MeshUtil.at(base + Vector3(0, h * 0.5, 0)),
+		Color(shade, shade, shade), bark_uv])
+	var leaf_shade := rng.randf_range(0.7, 1.0)
 	for i in 3:
-		var leaf := MeshUtil.sphere(rng.randf_range(1.8, 2.8), 7)
+		var size := leaf_size if leaf_size > 0.0 else rng.randf_range(1.8, 2.8)
 		var p := Vector3(rng.randf_range(-1.2, 1.2), h + rng.randf_range(-1.0, 1.5), rng.randf_range(-1.2, 1.2))
-		parts.append([leaf, MeshUtil.at(p), leaf_col])
-	var mi := MeshInstance3D.new()
-	mi.mesh = MeshUtil.merge_parts(parts)
-	mi.material_override = MeshUtil.vertex_color_material()
-	mi.position = base
-	add_child(mi)
+		var leaf_uv := Vector2(roundf(TAU * size / TILE), roundf(PI * size / TILE))
+		_leaf_parts.append([MeshUtil.sphere(size, 7), MeshUtil.at(base + p),
+			Color(leaf_shade, leaf_shade, leaf_shade), leaf_uv])
+
+
+func _flush_trees() -> void:
+	for pair in [[_trunk_parts, TEX_BARK], [_leaf_parts, TEX_LEAVES]]:
+		if pair[0].is_empty():
+			continue
+		var mi := MeshInstance3D.new()
+		mi.mesh = MeshUtil.merge_parts(pair[0])
+		mi.material_override = MeshUtil.tiled_material(pair[1])
+		add_child(mi)
+	_trunk_parts.clear()
+	_leaf_parts.clear()
 
 
 func _build_fruit() -> void:
@@ -383,15 +447,12 @@ func _build_goal() -> void:
 	var c := path_point(GOAL_OFFSET + 2.5)
 	var g := ground_height(GOAL_OFFSET, 50.0)
 	var away := -path_side(GOAL_OFFSET)
-	var parts := [
-		[MeshUtil.cylinder(1.1, 1.5, 16.0, 9), MeshUtil.at(Vector3(0, 8.0 - (g - FOREST_FLOOR), 0)), Color(0.85, 0.8, 0.7)],
-		[MeshUtil.sphere(4.0, 8), MeshUtil.at(Vector3(0, 16.0 - (g - FOREST_FLOOR), 0)), Color(0.32, 0.55, 0.33)],
-	]
-	var tree := MeshInstance3D.new()
-	tree.mesh = MeshUtil.merge_parts(parts)
-	tree.material_override = MeshUtil.vertex_color_material()
-	tree.position = c + away * 1.2 + Vector3(0, g, 0)
-	add_child(tree)
+	var pos := c + away * 1.2
+	var base := Vector3(pos.x, FOREST_FLOOR, pos.z)
+	_trunk_parts.append([MeshUtil.cylinder(1.1, 1.5, 16.0, 9), MeshUtil.at(base + Vector3(0, 8.0, 0)),
+		Color.WHITE, Vector2(6, 10)])
+	_leaf_parts.append([MeshUtil.sphere(4.0, 8), MeshUtil.at(base + Vector3(0, 16.0, 0)),
+		Color.WHITE, Vector2(16, 8)])
 	# Glowing hollow to aim for.
 	var hole := MeshInstance3D.new()
 	hole.mesh = MeshUtil.sphere(0.7, 10)
@@ -401,37 +462,42 @@ func _build_goal() -> void:
 
 
 func _build_hud() -> void:
+	# Laid out for the 320x240 screen (see screen.gd); the pixel font is crisp at sizes 8, 16, 24...
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	_hud_fruit = Label.new()
-	_hud_fruit.position = Vector2(24, 18)
-	_hud_fruit.add_theme_font_size_override("font_size", 28)
-	_hud_fruit.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud_fruit.add_theme_constant_override("outline_size", 8)
+	_hud_fruit.position = Vector2(6, 4)
+	_hud_fruit.label_settings = _hud_text(8)
 	layer.add_child(_hud_fruit)
 
 	var hint := Label.new()
-	hint.text = "A/D move   Space jump (hold in the air to glide)   R restart"
-	hint.add_theme_font_size_override("font_size", 18)
-	hint.add_theme_color_override("font_outline_color", Color.BLACK)
-	hint.add_theme_constant_override("outline_size", 6)
+	hint.text = "A/D MOVE  SPACE JUMP (HOLD TO GLIDE)  R RESTART"
+	hint.label_settings = _hud_text(8)
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hint.offset_left = 24
-	hint.offset_top = -48
-	hint.offset_bottom = -16
+	hint.offset_left = 6
+	hint.offset_top = -14
+	hint.offset_bottom = -4
 	layer.add_child(hint)
 
 	_hud_message = Label.new()
 	_hud_message.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_hud_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hud_message.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_hud_message.add_theme_font_size_override("font_size", 44)
-	_hud_message.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud_message.add_theme_constant_override("outline_size", 12)
+	_hud_message.label_settings = _hud_text(16)
 	_hud_message.visible = false
 	layer.add_child(_hud_message)
 	_update_hud()
 
 
+func _hud_text(size: int) -> LabelSettings:
+	var ls := LabelSettings.new()
+	ls.font_size = size
+	ls.font_color = Color.WHITE
+	ls.shadow_color = Color(0.05, 0.08, 0.05)
+	ls.shadow_offset = Vector2(1, 1) * (size / 8)
+	ls.shadow_size = 0
+	return ls
+
+
 func _update_hud() -> void:
-	_hud_fruit.text = "Fruit  %d / %d" % [_fruit_count, FRUIT.size()]
+	_hud_fruit.text = "FRUIT %d/%d" % [_fruit_count, FRUIT.size()]
