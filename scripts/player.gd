@@ -24,7 +24,7 @@ const GLIDE_FALL := 2.0         # top falling speed while gliding
 const GLIDE_TIME := 2.4         # seconds of glide per jump (refills on landing)
 const COYOTE_TIME := 0.1
 const JUMP_BUFFER := 0.12
-const MODEL_HEIGHT := 1.2       # the imported model is scaled to this many metres tall
+const MODEL_HEIGHT := 1.5       # the imported model is scaled to this many metres tall
 const GLIDE_BANK := 40.0        # degrees of roll towards the camera while gliding
 
 var level: Node                 # level.gd: path maths + collision queries
@@ -230,7 +230,7 @@ func _build_model() -> void:
 
 	# PS1-style blob shadow.
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(0.9, 0.9)
+	plane.size = Vector2(1.1, 1.1)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

@@ -10,9 +10,10 @@ extends Node
 const GAME_RES := Vector2i(320, 240)
 const PixelFont := preload("res://scripts/pixel_font.gd")
 
-## The look from Super Snowbaoarding's CLEAN screen mode. The shader also supports a
+## Like Super Snowbaoarding's CLEAN screen mode, but with full colour (color_levels 256) so
+## there is no 15-bit dithering: crisp, clean pixels. The shader also supports a
 ## bezel, curvature, scanlines, an RGB mask, vignette and glare if you want them later.
-const CLEAN := {"show_bezel": false, "curvature": 0.0, "scanline_strength": 0.0,
+const CLEAN := {"color_levels": 256.0, "show_bezel": false, "curvature": 0.0, "scanline_strength": 0.0,
 	"mask_strength": 0.0, "vignette_strength": 0.0, "glare_strength": 0.0}
 
 var viewport: SubViewport

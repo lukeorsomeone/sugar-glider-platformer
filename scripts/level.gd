@@ -12,11 +12,12 @@ const CameraScript := preload("res://scripts/path_camera.gd")
 
 const HALF_WIDTH := 1.6         # half the width of the walkable path
 const STEP_UP := 0.35           # ledges this small are walked up, not blocked
-const BODY_RADIUS := 0.25       # how close the glider can get to a wall
+const BODY_RADIUS := 0.3        # how close the glider can get to a wall
 const BODY_HEIGHT := 0.9
 const KILL_HEIGHT := -9.0       # fall below this and you respawn
 var kill_height := KILL_HEIGHT  # (instance copy so the player can read it)
-const FOREST_FLOOR := -12.0
+const WATER_LEVEL := -14.0      # sparkling water far below the floating islands
+const ISLAND_DEPTH := 4.5       # how far the floating ground blocks reach down
 
 ## [start, end, top height, solid]
 ## Solid blocks are ground with walls you bump into. Non-solid ones are one-way
@@ -56,10 +57,11 @@ const CHECKPOINTS := [2.0, 37.0, 59.0, 81.0, 110.0]
 
 const GOAL_OFFSET := 128.0
 
-## Pixel-art textures made in Aseprite (tools/aseprite/level_textures.lua).
+## Pixel-art textures made in Aseprite (tools/aseprite/*.lua).
 const TEX_GRASS := preload("res://assets/textures/source/grass_top.png")
 const TEX_GRASS_LIP := preload("res://assets/textures/source/grass_lip.png")
-const TEX_DIRT := preload("res://assets/textures/source/dirt_side.png")
+const TEX_STONE := preload("res://assets/textures/source/stone_cliff.png")
+const TEX_WATER := preload("res://assets/textures/source/water.png")
 const TEX_WOOD := preload("res://assets/textures/source/wood.png")
 const TEX_BARK := preload("res://assets/textures/source/gum_bark.png")
 const TEX_LEAVES := preload("res://assets/textures/source/leaves.png")
@@ -86,6 +88,7 @@ func _ready() -> void:
 	_build_environment()
 	_build_platforms()
 	_build_trees()
+	_build_props()
 	_build_fruit()
 	_build_updrafts()
 	_build_goal()
@@ -109,6 +112,8 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	if _clouds:
+		_clouds.rotation.y += delta * 0.004   # slow drift
 	if Input.is_action_just_pressed("restart"):
 		var screen := get_node_or_null("/root/Screen")
 		if screen:
@@ -215,55 +220,94 @@ func _build_curve() -> void:
 
 
 func _build_environment() -> void:
+	# Bright, sunny sky: deep blue overhead fading to a pale horizon, almost no haze.
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.25, 0.45, 0.8)
-	sky_mat.sky_horizon_color = Color(0.95, 0.75, 0.55)
-	sky_mat.ground_horizon_color = Color(0.3, 0.4, 0.3)
-	sky_mat.ground_bottom_color = Color(0.1, 0.18, 0.1)
+	sky_mat.sky_top_color = Color(0.10, 0.38, 0.95)
+	sky_mat.sky_horizon_color = Color(0.62, 0.84, 1.0)
+	sky_mat.sky_curve = 0.12
+	sky_mat.ground_horizon_color = Color(0.62, 0.84, 1.0)
+	sky_mat.ground_bottom_color = Color(0.25, 0.55, 0.95)
+	sky_mat.sun_angle_max = 8.0
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.8
+	env.ambient_light_energy = 1.0
+	# Mostly warm white fill (pure sky light would tint everything blue).
+	env.ambient_light_color = Color(1.0, 0.97, 0.9)
+	env.ambient_light_sky_contribution = 0.3
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.75, 0.75, 0.65)
-	env.fog_density = 0.0035
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.fog_light_color = Color(0.68, 0.85, 1.0)
+	env.fog_density = 0.0009
+	env.fog_sky_affect = 0.0
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.15
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, -30, 0)
-	sun.light_energy = 1.1
-	sun.light_color = Color(1.0, 0.93, 0.8)
+	sun.rotation_degrees = Vector3(-55, -30, 0)
+	sun.light_energy = 1.3
+	sun.light_color = Color(1.0, 0.97, 0.9)
 	add_child(sun)
 
-	# Forest floor far below the path, so gaps look like real drops.
-	var floor_mesh := PlaneMesh.new()
-	floor_mesh.size = Vector2(400, 400)
-	var fm := MeshInstance3D.new()
-	fm.mesh = floor_mesh
-	fm.material_override = MeshUtil.tiled_material(TEX_GRASS, Color(0.45, 0.6, 0.45))
-	# PlaneMesh UVs run 0..1 across it; scale them so the grass tiles at the usual size.
-	fm.material_override.set_shader_parameter("uv_scale", Vector2.ONE * floor_mesh.size.x / TILE)
+	# Sparkling water far below the islands, so gaps look like real drops.
+	var water_mesh := PlaneMesh.new()
+	water_mesh.size = Vector2(600, 600)
+	var wm := MeshInstance3D.new()
+	wm.mesh = water_mesh
+	wm.material_override = MeshUtil.tiled_material(TEX_WATER)
+	wm.material_override.set_shader_parameter("uv_scale", Vector2.ONE * water_mesh.size.x / (TILE * 2.0))
 	var mid := path_point(length * 0.5)
-	fm.position = Vector3(mid.x, FOREST_FLOOR, mid.z)
-	add_child(fm)
+	wm.position = Vector3(mid.x, WATER_LEVEL, mid.z)
+	add_child(wm)
+
+	_build_clouds(mid)
+
+
+var _clouds: Node3D
+
+## Big puffy low-poly clouds in a ring around the level. They drift slowly (see _process).
+func _build_clouds(center: Vector3) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var parts := []
+	for i in 28:
+		var ang := rng.randf() * TAU
+		var dist := rng.randf_range(70.0, 150.0)
+		var c := Vector3(cos(ang) * dist, rng.randf_range(12.0, 45.0), sin(ang) * dist)
+		var size := rng.randf_range(4.0, 9.0)
+		var right := Vector3(-sin(ang), 0, cos(ang))   # spread the puffs sideways to the viewer
+		for j in rng.randi_range(4, 7):
+			var p := c + right * rng.randf_range(-1.6, 1.6) * size + Vector3(0, rng.randf_range(-0.3, 0.6) * size, 0)
+			var r := size * rng.randf_range(0.55, 1.0)
+			# flatten the bottoms a little so they sit like real clouds
+			var xf := Transform3D(Basis.from_scale(Vector3(1.0, 0.75, 1.0)), p)
+			parts.append([MeshUtil.sphere(r, 8), xf, Color(1, 1, 1)])
+	_clouds = Node3D.new()
+	_clouds.position = Vector3(center.x, 0, center.z)
+	var mi := MeshInstance3D.new()
+	mi.mesh = MeshUtil.merge_parts(parts)
+	# Mostly self-lit so they stay bright white, with a hint of shading from the sun.
+	mi.material_override = MeshUtil.ps1_material(Color(0.78, 0.85, 0.95), 0.75, Color(0.75, 0.8, 0.88))
+	_clouds.add_child(mi)
+	add_child(_clouds)
 
 
 func _build_platforms() -> void:
 	var mats := {
 		"grass": MeshUtil.tiled_material(TEX_GRASS),
 		"lip": MeshUtil.tiled_material(TEX_GRASS_LIP),
-		"dirt": MeshUtil.tiled_material(TEX_DIRT),
+		"dirt": MeshUtil.tiled_material(TEX_STONE),
 		"wood": MeshUtil.tiled_material(TEX_WOOD),
 	}
 	for p in PLATFORMS:
 		var solid: bool = p[3]
-		var bottom: float = FOREST_FLOOR if solid else p[2] - 0.45
+		var bottom: float = p[2] - (ISLAND_DEPTH if solid else 0.45)
 		var width := HALF_WIDTH if solid else HALF_WIDTH * 0.8
 		var mi := MeshInstance3D.new()
 		mi.mesh = _strip_mesh(p[0], p[1], p[2], bottom, width, solid, mats)
@@ -340,18 +384,93 @@ func _quad(st: SurfaceTool, v: Array, uv: Array, col: Color, n: Vector3) -> void
 
 
 func _build_trees() -> void:
-	# Eucalyptus-ish trees behind the path (the far side from the camera), rising from the forest floor.
+	# Floating grassy islands behind the path (the far side from the camera), each with a
+	# few gum trees on top, plus bigger, lower islands further out for depth.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	var o := 0.0
+	var tools := {}
+	for key in ["grass", "lip", "stone"]:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		tools[key] = st
+	var o := 2.0
 	while o < length:
 		var c := path_point(o)
 		var away := -path_side(o)
-		var dist := rng.randf_range(5.0, 18.0)
-		var h := rng.randf_range(23.0, 30.0)
-		var base := c + away * dist + Vector3(rng.randf_range(-1, 1), FOREST_FLOOR, rng.randf_range(-1, 1))
-		_add_tree(base, h, rng)
-		o += rng.randf_range(2.5, 5.0)
+		var near := rng.randf() < 0.65
+		var dist := rng.randf_range(9.0, 20.0) if near else rng.randf_range(32.0, 60.0)
+		var radius := rng.randf_range(2.5, 5.0) if near else rng.randf_range(6.0, 11.0)
+		var top := rng.randf_range(-3.0, 3.5) if near else rng.randf_range(-6.0, 1.0)
+		var centre := c + away * dist + path_dir(o) * rng.randf_range(-2.0, 2.0)
+		centre.y = top
+		_add_island(tools, centre, radius, rng.randf_range(4.0, 7.0) + radius * 0.6, rng)
+		for t in rng.randi_range(1, 3 if near else 5):
+			var a := rng.randf() * TAU
+			var rr := rng.randf_range(0.0, radius * 0.6)
+			var base := centre + Vector3(cos(a) * rr, 0, sin(a) * rr)
+			_add_tree(base, rng.randf_range(6.0, 11.0), rng)
+		o += rng.randf_range(6.0, 11.0)
+	var mats := {
+		"grass": MeshUtil.tiled_material(TEX_GRASS),
+		"lip": MeshUtil.tiled_material(TEX_GRASS_LIP),
+		"stone": MeshUtil.tiled_material(TEX_STONE),
+	}
+	var mesh := ArrayMesh.new()
+	for key in tools:
+		(tools[key] as SurfaceTool).commit(mesh)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, mats[key])
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	add_child(mi)
+
+
+## A floating island: a grassy top, a grass-fringed edge, stone cliffs that taper to a
+## rocky point underneath. UVs are in world metres so textures tile at the usual size.
+func _add_island(tools: Dictionary, centre: Vector3, radius: float, depth: float, rng: RandomNumberGenerator) -> void:
+	var sides := 9
+	var ring: Array = []   # wobbly outline so islands aren't perfect circles
+	for i in sides:
+		var a := TAU * i / sides
+		var r := radius * rng.randf_range(0.85, 1.12)
+		ring.append(Vector3(cos(a) * r, 0, sin(a) * r))
+	var lip_y := -LIP
+	var mid_y := -depth * 0.45
+	var tip := centre + Vector3(rng.randf_range(-0.5, 0.5), -depth, rng.randf_range(-0.5, 0.5))
+	var perim := 0.0
+	for i in sides:
+		var a: Vector3 = ring[i]
+		var b: Vector3 = ring[(i + 1) % sides]
+		var seg := a.distance_to(b) / TILE
+		var u0 := perim
+		var u1 := perim + seg
+		perim = u1
+		var n := (a + b).normalized()
+		# top (fan from the centre)
+		_tri(tools["grass"], [centre, centre + b, centre + a],
+			[Vector2(centre.x, centre.z) / TILE, Vector2(centre.x + b.x, centre.z + b.z) / TILE,
+			Vector2(centre.x + a.x, centre.z + a.z) / TILE], Color.WHITE, Vector3.UP)
+		# grassy edge band
+		_quad(tools["lip"], [centre + a, centre + b, centre + b + Vector3(0, lip_y, 0), centre + a + Vector3(0, lip_y, 0)],
+			[Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, 1), Vector2(u0, 1)], Color.WHITE, n)
+		# straight stone cliff, then taper inwards to the tip
+		var a1 := centre + a + Vector3(0, lip_y, 0)
+		var b1 := centre + b + Vector3(0, lip_y, 0)
+		var a2 := centre + a * 0.8 + Vector3(0, mid_y, 0)
+		var b2 := centre + b * 0.8 + Vector3(0, mid_y, 0)
+		var v1 := (mid_y - lip_y) / -TILE
+		_quad(tools["stone"], [a1, b1, b2, a2],
+			[Vector2(u0, 0), Vector2(u1, 0), Vector2(u1, v1), Vector2(u0, v1)], Color(0.95, 0.95, 0.95), n)
+		_tri(tools["stone"], [a2, b2, tip],
+			[Vector2(u0, v1), Vector2(u1, v1), Vector2((u0 + u1) * 0.5, v1 + depth * 0.55 / TILE)],
+			Color(0.7, 0.7, 0.72), (n + Vector3.DOWN).normalized())
+
+
+func _tri(st: SurfaceTool, v: Array, uv: Array, col: Color, n: Vector3) -> void:
+	st.set_color(col)
+	st.set_normal(n)
+	for i in 3:
+		st.set_uv(uv[i])
+		st.add_vertex(v[i])
 
 
 ## Queues a tree's trunk and leaves. All trees end up in two meshes (bark and leaves),
@@ -386,6 +505,67 @@ func _flush_trees() -> void:
 		add_child(mi)
 	_trunk_parts.clear()
 	_leaf_parts.clear()
+
+
+## Platform indices (into PLATFORMS) that get a white picket fence along the far edge.
+const FENCED := [0, 3, 7, 11]
+
+func _build_props() -> void:
+	# Rope rails on the wooden platforms and picket fences on some ground, all on the far
+	# side of the path so they never hide Bao. Flat vertex colours, one mesh for the lot.
+	const POST := Color(0.55, 0.35, 0.18)
+	const ROPE := Color(0.82, 0.66, 0.4)
+	const PICKET := Color(0.97, 0.95, 0.88)
+	var parts := []
+	for i in PLATFORMS.size():
+		var p: Array = PLATFORMS[i]
+		var a: float = p[0]
+		var b: float = p[1]
+		var top: float = p[2]
+		if not p[3]:
+			var half := HALF_WIDTH * 0.8 - 0.12
+			var posts := []
+			var n := maxi(2, int((b - a) / 1.6) + 1)
+			for k in n:
+				var o := lerpf(a + 0.2, b - 0.2, float(k) / (n - 1))
+				var base := path_point(o) - path_side(o) * half + Vector3(0, top, 0)
+				parts.append([MeshUtil.box(Vector3(0.12, 0.9, 0.12)), MeshUtil.at(base + Vector3(0, 0.45, 0)), POST])
+				posts.append(base)
+			for k in posts.size() - 1:
+				for h in [0.75, 0.42]:
+					_add_beam(parts, posts[k] + Vector3(0, h, 0), posts[k + 1] + Vector3(0, h, 0), 0.05, ROPE)
+		elif i in FENCED:
+			var half := HALF_WIDTH - 0.15
+			var end := minf(b - 0.3, a + 10.0)
+			var o := a + 0.3
+			var prev := Vector3.ZERO
+			var first := true
+			while o <= end:
+				var base := path_point(o) - path_side(o) * half + Vector3(0, top, 0)
+				parts.append([MeshUtil.box(Vector3(0.1, 0.75, 0.06)), MeshUtil.at(base + Vector3(0, 0.375, 0),
+					Basis.looking_at(path_dir(o))), PICKET])
+				parts.append([MeshUtil.box(Vector3(0.07, 0.07, 0.04)), MeshUtil.at(base + Vector3(0, 0.78, 0),
+					Basis.looking_at(path_dir(o)) * Basis(Vector3.FORWARD, PI / 4)), PICKET])
+				if not first:
+					for h in [0.55, 0.25]:
+						_add_beam(parts, prev + Vector3(0, h, 0), base + Vector3(0, h, 0), 0.05, PICKET.darkened(0.08))
+				prev = base
+				first = false
+				o += 0.45
+	if parts.is_empty():
+		return
+	var mi := MeshInstance3D.new()
+	mi.mesh = MeshUtil.merge_parts(parts)
+	mi.material_override = MeshUtil.vertex_color_material()
+	add_child(mi)
+
+
+## A thin box from a to b (ropes, rails).
+func _add_beam(parts: Array, a: Vector3, b: Vector3, thick: float, col: Color) -> void:
+	var d := b - a
+	if d.length() < 0.01:
+		return
+	parts.append([MeshUtil.box(Vector3(thick, thick, d.length())), MeshUtil.at((a + b) * 0.5, Basis.looking_at(d)), col])
 
 
 func _build_fruit() -> void:
@@ -448,7 +628,7 @@ func _build_goal() -> void:
 	var g := ground_height(GOAL_OFFSET, 50.0)
 	var away := -path_side(GOAL_OFFSET)
 	var pos := c + away * 1.2
-	var base := Vector3(pos.x, FOREST_FLOOR, pos.z)
+	var base := Vector3(pos.x, g - ISLAND_DEPTH, pos.z)
 	_trunk_parts.append([MeshUtil.cylinder(1.1, 1.5, 16.0, 9), MeshUtil.at(base + Vector3(0, 8.0, 0)),
 		Color.WHITE, Vector2(6, 10)])
 	_leaf_parts.append([MeshUtil.sphere(4.0, 8), MeshUtil.at(base + Vector3(0, 16.0, 0)),

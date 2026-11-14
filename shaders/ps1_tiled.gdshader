@@ -1,10 +1,11 @@
 shader_type spatial;
 // PS1-style tiling texture for level geometry: nearest-filtered, repeating pixel art
-// (no mipmaps, so it shimmers a little in the distance like the real thing), multiplied
+// (nearest within a mip level so pixels stay sharp up close, mipmaps so it does not
+// sparkle in the distance), multiplied
 // by the vertex colour for cheap shading, with per-vertex lighting and vertex snapping.
 render_mode vertex_lighting, cull_disabled, specular_disabled;
 
-uniform sampler2D tex : source_color, filter_nearest, repeat_enable;
+uniform sampler2D tex : source_color, filter_nearest_mipmap, repeat_enable;
 uniform vec4 tint : source_color = vec4(1.0);
 uniform vec2 uv_scale = vec2(1.0);
 uniform vec2 snap_resolution = vec2(320.0, 240.0);

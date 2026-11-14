@@ -1,7 +1,7 @@
--- Generates the level's tiling pixel-art textures (PS1 style, bright Klonoa-ish palette).
+-- Generates the wood and gum bark textures (the rest come from bright_textures.lua).
 -- Run:  Aseprite.exe -b --script-param dir=<output folder> --script level_textures.lua
 -- Each texture is saved as <name>.aseprite (to touch up by hand) and <name>.png (for Godot).
--- grass_top.png is made by grass_top.lua.
+-- grass, grass edge, stone cliff, water and leaves: see bright_textures.lua.
 
 local dir = app.params["dir"]
 
@@ -41,42 +41,6 @@ end
 -- shared palettes -----------------------------------------------------------
 local G = { rgb(40,110,52), rgb(58,140,60), rgb(82,176,70), rgb(112,204,84), rgb(156,226,108) }
 local D = { rgb(74,44,28), rgb(102,62,36), rgb(128,80,46), rgb(150,98,58), rgb(176,128,84) }
-
--- dirt_side: warm earth with wavy strata and pebbles ---------------------------
-math.randomseed(11)
-do
-  local spr, img = new(32, 32)
-  fill_noise(img, { {D[3], 5}, {D[2], 3}, {D[4], 2} })
-  for band = 0, 2 do
-    local y0 = band * 11 + 3
-    for x = 0, 31 do
-      local y = y0 + math.floor(math.sin((x / 32) * math.pi * 2 + band) * 1.5 + 0.5)
-      put(img, x, y, D[1]); if math.random() < 0.5 then put(img, x, y + 1, D[2]) end
-    end
-  end
-  for i = 1, 9 do
-    local x, y = math.random(0, 31), math.random(0, 31)
-    put(img, x, y, D[5]); put(img, x + 1, y, D[4]); put(img, x, y + 1, D[4]); put(img, x + 1, y + 1, D[2])
-  end
-  save(spr, "dirt_side")
-end
-
--- grass_lip (32x16): grass on top with a ragged fringe hanging over dirt -------
-math.randomseed(12)
-do
-  local spr, img = new(32, 16)
-  fill_noise(img, { {D[3], 5}, {D[2], 3}, {D[4], 2} })
-  for x = 0, 31 do
-    local len = 5 + math.random(0, 4) + ((x % 3 == 0) and 2 or 0)
-    for y = 0, len do
-      local c = (y >= len - 1) and G[1] or ((math.random() < 0.6) and G[3] or G[2])
-      if y <= 1 and math.random() < 0.5 then c = G[4] end
-      put(img, x, y, c)
-    end
-    put(img, x, len + 1, D[1])   -- shadow under the fringe
-  end
-  save(spr, "grass_lip")
-end
 
 -- wood: branch platforms, grain runs horizontally (along the path) -------------
 math.randomseed(13)
@@ -134,18 +98,3 @@ do
   save(spr, "gum_bark")
 end
 
--- leaves: overlapping leaf clumps ---------------------------------------------
-math.randomseed(15)
-do
-  local L = { rgb(30,82,46), rgb(44,112,56), rgb(64,146,66), rgb(96,178,78), rgb(140,206,100) }
-  local spr, img = new(32, 32)
-  fill_noise(img, { {L[1], 3}, {L[2], 2} })
-  for i = 1, 70 do
-    local x, y = math.random(0, 31), math.random(0, 31)
-    local c = ({ L[2], L[3], L[3], L[4] })[math.random(1, 4)]
-    -- a small diagonal leaf with a bright tip
-    put(img, x, y, c); put(img, x + 1, y, c); put(img, x + 1, y - 1, c); put(img, x + 2, y - 1, c)
-    put(img, x + 2, y - 2, L[5]); put(img, x, y + 1, L[1])
-  end
-  save(spr, "leaves")
-end
