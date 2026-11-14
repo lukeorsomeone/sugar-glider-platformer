@@ -4,9 +4,9 @@ A 2.5D platformer starring **Bao**, the sugar glider from *Super Snowboarding!*,
 
 As Bao, you run, jump and glide along a winding path across sunny floating islands high above the sea. The path curves through 3D space while the controls stay 2D, and the camera swings round with it.
 
-![Gliding over an updraft in the forest](docs/screenshot-glide.png)
+![Gliding past floating islands above the sea](docs/screenshot-glide.png)
 
-![Hopping between floating branches](docs/screenshot-branches.png)
+![Running across grassy islands and rope-railed wooden platforms](docs/screenshot-branches.png)
 
 ## Features
 
