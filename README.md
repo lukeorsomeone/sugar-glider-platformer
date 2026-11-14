@@ -4,6 +4,10 @@ A 2.5D platformer starring the sugar glider from *Super Snowboarding!*, built in
 
 You run, jump and glide along a winding path through a eucalyptus forest. The path curves through 3D space while the controls stay 2D, and the camera swings round with it.
 
+![Gliding over an updraft in the forest](docs/screenshot-glide.png)
+
+![Hopping between floating branches](docs/screenshot-branches.png)
+
 ## Features
 
 - **Path-based 2.5D movement.** The glider moves along a curved path (offset) and up/down (height), and the level turns those into a 3D position.
