@@ -1,0 +1,21 @@
+# Godot 4 cache and generated files
+.godot/
+*.tmp
+*.translation
+
+# Exported builds
+/export/
+/builds/
+*.exe
+*.pck
+*.zip
+
+# Blender backups
+*.blend1
+*.blend2
+*.bak
+
+# OS clutter
+Thumbs.db
+desktop.ini
+.DS_Store
