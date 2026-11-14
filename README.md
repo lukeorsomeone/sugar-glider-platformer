@@ -6,7 +6,7 @@ As Bao, you run, jump and glide along a winding path across sunny floating islan
 
 ![Gliding past floating islands above the sea](docs/screenshot-glide.png)
 
-![Running across grassy islands and rope-railed wooden platforms](docs/screenshot-branches.png)
+![Bao standing on a rope-railed wooden platform among the floating islands](docs/screenshot-branches.png)
 
 ## Features
 
