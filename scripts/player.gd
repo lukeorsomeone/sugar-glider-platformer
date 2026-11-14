@@ -157,7 +157,7 @@ func _update_transform(delta: float, snap: bool) -> void:
 	# Lift the body while flat so it pivots around its middle rather than its feet.
 	_body.position.y = sin(_body.rotation.x) * MODEL_HEIGHT * 0.35
 	# Bank towards the camera so you can see the spread flaps from the side.
-	var bank := deg_to_rad(GLIDE_BANK) * facing if gliding else 0.0
+	var bank := -deg_to_rad(GLIDE_BANK) * facing if gliding else 0.0
 	_bank.rotation.y = bank if snap else lerpf(_bank.rotation.y, bank, minf(1.0, 8.0 * delta))
 
 	# Squash a little when landing.

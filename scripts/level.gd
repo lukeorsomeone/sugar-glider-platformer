@@ -149,7 +149,9 @@ func path_dir(o: float) -> Vector3:
 
 ## The side of the path the camera sits on.
 func path_side(o: float) -> Vector3:
-	return path_dir(o).cross(Vector3.UP).normalized() * -1.0
+	# Forward x up points to the right of travel, so a camera here looking back at the path
+	# sees forwards as screen-right.
+	return path_dir(o).cross(Vector3.UP).normalized()
 
 
 # ---------------------------------------------------------------- collision
@@ -258,7 +260,7 @@ func _strip_mesh(a: float, b: float, top: float, bottom: float, half: float, top
 		var o := lerpf(a, b, float(i) / steps)
 		var c := path_point(o)
 		var s := path_side(o) * half
-		rows.append([c + s, c - s])
+		rows.append([c - s, c + s])   # [far edge, camera-side edge]
 	var up := Vector3(0, top, 0)
 	var down := Vector3(0, bottom, 0)
 	var edge := Vector3(0, top - 0.18, 0)
@@ -270,9 +272,9 @@ func _strip_mesh(a: float, b: float, top: float, bottom: float, half: float, top
 		_quad(st, l0 + up, l1 + up, r1 + up, r0 + up, top_col, Vector3.UP)
 		# Grass lip, then dirt down the sides.
 		_quad(st, l0 + up, l1 + up, l1 + edge, l0 + edge, top_col.darkened(0.15), Vector3.FORWARD)
-		_quad(st, l0 + edge, l1 + edge, l1 + down, l0 + down, side_col, Vector3.FORWARD)
+		_quad(st, l0 + edge, l1 + edge, l1 + down, l0 + down, side_col.darkened(0.2), Vector3.FORWARD)
 		_quad(st, r0 + up, r1 + up, r1 + edge, r0 + edge, top_col.darkened(0.15), Vector3.BACK)
-		_quad(st, r0 + edge, r1 + edge, r1 + down, r0 + down, side_col.darkened(0.2), Vector3.BACK)
+		_quad(st, r0 + edge, r1 + edge, r1 + down, r0 + down, side_col, Vector3.BACK)
 		_quad(st, l0 + down, l1 + down, r1 + down, r0 + down, side_col.darkened(0.4), Vector3.DOWN)
 	# End caps.
 	var f: Array = rows[0]
