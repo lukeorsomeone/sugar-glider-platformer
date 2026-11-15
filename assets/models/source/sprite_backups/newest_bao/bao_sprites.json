@@ -1,0 +1,30 @@
+{
+  "frame_size": [
+    72,
+    72
+  ],
+  "feet": [
+    37.76,
+    63.74
+  ],
+  "animations": {
+    "idle": {
+      "file": "bao_idle.png",
+      "frames": 10,
+      "fps": 6,
+      "loop": true
+    },
+    "run": {
+      "file": "bao_run.png",
+      "frames": 8,
+      "fps": 12,
+      "loop": true
+    },
+    "glide": {
+      "file": "bao_glide.png",
+      "frames": 8,
+      "fps": 12,
+      "loop": true
+    }
+  }
+}

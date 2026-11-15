@@ -10,7 +10,8 @@ signal jumped
 signal fell_off
 
 const MeshUtil := preload("res://scripts/mesh_util.gd")
-const GLIDER_MODEL := preload("res://assets/models/sugar_glider.glb")
+const GLIDER_MODEL := preload("res://assets/models/bao.glb")  # new Bao design
+# Old Super Snowboarding model (has animations): preload("res://assets/models/sugar_glider.glb")
 
 const RUN_SPEED := 7.5
 const GROUND_ACCEL := 45.0
@@ -30,6 +31,16 @@ const IDLE_TURN := 0.75         # how far (0-1) Bao turns from the path towards 
 const IDLE_TURN_DELAY := 0.3    # seconds standing still before he turns
 const LAND_TIME := 0.42         # length of the "land" bounce animation
 const LOOPING := ["idle", "run", "fall", "glide"]   # jump and land play once
+
+# Klonoa 1-style pixel art sprite (pre-rendered from bao_snow_style.blend, see assets/sprites/bao/;
+# the previous sprites are backed up in assets/models/source/sprite_backups/).
+# Set USE_SPRITES to false to go back to the 3D model.
+const USE_SPRITES := true
+const SPRITE_DIR := "res://assets/sprites/bao/"
+const SPRITE_FRAME := 80        # each frame is 80x80 pixels
+const SPRITE_FEET_Y := 69.58    # pixel row where Bao's feet touch the ground in each frame
+const SPRITE_PIXEL := 0.031     # metres per sprite pixel (standing Bao is about 1.8 m tall)
+const SPRITE_ANIMS := {"idle": 6.0, "run": 12.0, "glide": 12.0}   # sheet name: frames per second
 
 var level: Node                 # level.gd: path maths + collision queries
 var controls_enabled := true
@@ -56,6 +67,7 @@ var _bank: Node3D              # rolls around the body's long axis so the flaps 
 var _model: Node3D
 var _anim: AnimationPlayer
 var _shadow: MeshInstance3D
+var _sprite: AnimatedSprite3D
 
 
 func _ready() -> void:
@@ -179,6 +191,9 @@ func _update_transform(delta: float, snap: bool) -> void:
 	_squash = move_toward(_squash, 0.0, delta * 5.0)
 	var sq := _squash * 0.25
 	_body.scale = Vector3(1.0 + sq, 1.0 - sq, 1.0 + sq)
+	if _sprite:
+		_sprite.scale = Vector3(1.0 + sq, 1.0 - sq, 1.0)
+		_sprite.flip_h = facing < 0.0   # frames face right (forwards on screen)
 
 	# Pick the animation (made in Blender: idle, run, jump, fall, glide, land).
 	_land_time = maxf(_land_time - delta, 0.0)
@@ -186,15 +201,21 @@ func _update_transform(delta: float, snap: bool) -> void:
 		if absf(speed) > 0.5:
 			_land_time = 0.0
 			_play_anim("run")
-			_anim.speed_scale = clampf(absf(speed) / RUN_SPEED, 0.5, 1.3) * 1.3
+			if _anim:
+				_anim.speed_scale = clampf(absf(speed) / RUN_SPEED, 0.5, 1.3) * 1.3
+			if _sprite:
+				_sprite.speed_scale = clampf(absf(speed) / RUN_SPEED, 0.6, 1.3)
 		elif _land_time > 0.0:
 			_play_anim("land")
-			_anim.speed_scale = 1.0
+			if _anim:
+				_anim.speed_scale = 1.0
 		else:
 			_play_anim("idle")
-			_anim.speed_scale = 1.0
+			if _anim:
+				_anim.speed_scale = 1.0
 	else:
-		_anim.speed_scale = 1.0
+		if _anim:
+			_anim.speed_scale = 1.0
 		if gliding:
 			_play_anim("glide")
 		elif y_vel > 0.0:
@@ -214,6 +235,12 @@ func _update_transform(delta: float, snap: bool) -> void:
 
 
 func _play_anim(anim_name: String, restart := false) -> void:
+	if _sprite:
+		if anim_name != "run":
+			_sprite.speed_scale = 1.0
+		if restart or _sprite.animation != anim_name:
+			_sprite.play(anim_name)
+		return
 	if _anim == null or not _anim.has_animation(anim_name):
 		return
 	# A finished one-shot (jump, land) clears current_animation, so check assigned_animation.
@@ -253,6 +280,10 @@ func _build_model() -> void:
 			_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR if n in LOOPING else Animation.LOOP_NONE
 		_anim.play("idle")
 
+	if USE_SPRITES:
+		_model.visible = false
+		_build_sprite()
+
 	# PS1-style blob shadow.
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(1.1, 1.1)
@@ -280,6 +311,65 @@ func _visible_aabb(root: Node3D) -> AABB:
 		result = b if first else result.merge(b)
 		first = false
 	return result
+
+
+## Bao as a billboard pixel-art sprite, Klonoa 1 style: always faces the camera,
+## flips to face where he's going, feet on the ground at the player's origin.
+func _build_sprite() -> void:
+	var frames := SpriteFrames.new()
+	frames.remove_animation("default")
+	var sheets := {}
+	for anim_name in SPRITE_ANIMS:
+		var tex := _load_texture(SPRITE_DIR + "bao_%s.png" % anim_name)
+		if tex == null:
+			push_warning("Missing sprite sheet for " + anim_name + "; using the 3D model.")
+			_model.visible = true
+			return
+		sheets[anim_name] = tex
+		frames.add_animation(anim_name)
+		frames.set_animation_speed(anim_name, SPRITE_ANIMS[anim_name])
+		frames.set_animation_loop(anim_name, true)
+		for i in floori(tex.get_width() / float(SPRITE_FRAME)):
+			frames.add_frame(anim_name, _frame(tex, i))
+	# Not drawn yet: borrow run frames for jump / fall, and use idle for the landing.
+	for extra in [["jump", 2], ["fall", 5]]:
+		frames.add_animation(extra[0])
+		frames.set_animation_loop(extra[0], true)
+		frames.add_frame(extra[0], _frame(sheets["run"], extra[1]))
+	frames.add_animation("land")
+	frames.set_animation_loop("land", true)
+	frames.add_frame("land", _frame(sheets["idle"], 0))
+
+	_sprite = AnimatedSprite3D.new()
+	_sprite.sprite_frames = frames
+	_sprite.pixel_size = SPRITE_PIXEL
+	_sprite.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+	_sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	_sprite.shaded = false
+	# Raise the sprite so the feet row sits on y = 0.
+	_sprite.position.y = (SPRITE_FEET_Y - SPRITE_FRAME * 0.5) * SPRITE_PIXEL
+	add_child(_sprite)
+	_sprite.play("idle")
+
+
+func _frame(sheet: Texture2D, index: int) -> AtlasTexture:
+	var t := AtlasTexture.new()
+	t.atlas = sheet
+	t.region = Rect2(index * SPRITE_FRAME, 0, SPRITE_FRAME, SPRITE_FRAME)
+	return t
+
+
+## Loads an imported texture, or reads the PNG straight off disk if the editor hasn't
+## imported it yet.
+func _load_texture(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		return load(path)
+	var file := ProjectSettings.globalize_path(path)
+	if not FileAccess.file_exists(file):
+		return null
+	var img := Image.load_from_file(file)
+	return ImageTexture.create_from_image(img) if img else null
 
 
 func _soft_dot() -> GradientTexture2D:

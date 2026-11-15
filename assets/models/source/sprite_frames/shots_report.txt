@@ -1,0 +1,3 @@
+SHOT standing: speed=0.00 facing=1 screen_x=91.9 anim=idle flip_h=false frame=3
+SHOT running right: speed=0.00 facing=1 screen_x=91.9 anim=idle flip_h=false frame=1
+SHOT running left: speed=0.00 facing=1 screen_x=91.9 anim=idle flip_h=false frame=6
